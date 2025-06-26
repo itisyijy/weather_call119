@@ -1,53 +1,19 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun 24 23:10:37 2025
-
-@author: jooyoungjin
-"""
-
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error, confusion_matrix, classification_report
 
-# 데이터 불러오기
-df = pd.read_csv("call119_train.csv")
-
-# 결측치 처리
-numeric_cols = df.select_dtypes(include=["float64", "int64"]).columns
-df[numeric_cols] = df[numeric_cols].replace(-99.0, np.nan)
-df.dropna(inplace=True)
-
-# X, y 정의 (기본 변수만 사용)
-X = df[[
-    "call119_train.ta_max", "call119_train.ta_min", "call119_train.ta_max_min",
-    "call119_train.hm_min", "call119_train.hm_max",
-    "call119_train.ws_max", "call119_train.ws_ins_max",
-    "call119_train.rn_day"
-]]
-y = df["call119_train.call_count"]
-
-# train/test 분리
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-#----------
-
-import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import RandomizedSearchCV
-from scipy.stats import randint, uniform
-
-# 1. 데이터 불러오기 및 전처리
+# ----------------------------
+# 1. 학습 데이터 불러오기 및 전처리
+# ----------------------------
 df = pd.read_csv("call119_train.csv")
 df.columns = [col.replace("call119_train.", "") for col in df.columns]
 df["tm"] = pd.to_datetime(df["tm"], format="%Y%m%d")
 df.replace(-99.0, np.nan, inplace=True)
 df.dropna(inplace=True)
 
-# 2. 시간 파생 변수
 df["weekday"] = df["tm"].dt.dayofweek
 df["month"] = df["tm"].dt.month
 df["weekday_sin"] = np.sin(2 * np.pi * df["weekday"] / 7)
@@ -55,26 +21,11 @@ df["weekday_cos"] = np.cos(2 * np.pi * df["weekday"] / 7)
 df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
 df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
 
-# 3. 공휴일 플래그
-holidays = pd.to_datetime([
-    '2020-01-01','2020-01-25','2020-01-26','2020-01-27','2020-03-01','2020-05-05','2020-05-08',
-    '2020-06-06','2020-08-15','2020-08-17','2020-09-30','2020-10-01','2020-10-02','2020-10-03','2020-10-09','2020-12-25',
-    '2021-01-01','2021-02-11','2021-02-12','2021-02-13','2021-03-01','2021-05-05','2021-05-19',
-    '2021-06-06','2021-08-15','2021-08-16','2021-09-20','2021-09-21','2021-09-22','2021-10-03','2021-10-04','2021-10-09','2021-10-11','2021-12-25',
-    '2022-01-01','2022-01-31','2022-02-01','2022-02-02','2022-03-01','2022-05-05','2022-05-08',
-    '2022-06-06','2022-08-15','2022-09-09','2022-09-10','2022-09-11','2022-10-03','2022-10-09','2022-12-25',
-    '2023-01-01','2023-01-21','2023-01-22','2023-01-23','2023-01-24','2023-03-01','2023-05-05','2023-05-27',
-    '2023-06-06','2023-08-15','2023-09-28','2023-09-29','2023-09-30','2023-10-02','2023-10-03','2023-10-09','2023-12-25'
-])
-df["is_holiday"] = df["tm"].isin(holidays).astype(int)
-
-# 4. 파생 변수
 df["ta_diff"] = df["ta_max"] - df["ta_min"]
 df["hm_diff"] = df["hm_max"] - df["hm_min"]
 df["is_heatwave"] = (df["ta_max"] >= 33).astype(int)
 df["is_heavy_rain"] = (df["rn_day"] >= 50).astype(int)
 
-# 5. 시계열 변수
 df = df.sort_values(["sub_address", "tm"])
 df["call_count_lag1"] = df.groupby("sub_address")["call_count"].shift(1).fillna(0)
 df["call_count_sum3"] = df.groupby("sub_address")["call_count"].rolling(3, min_periods=1).sum().reset_index(0, drop=True)
@@ -84,15 +35,13 @@ df["rn_day_lag1"] = df.groupby("sub_address")["rn_day"].shift(1).fillna(0)
 df["rn_day_sum3"] = df.groupby("sub_address")["rn_day"].rolling(3, min_periods=1).sum().reset_index(0, drop=True)
 df["rn_day_sum7"] = df.groupby("sub_address")["rn_day"].rolling(7, min_periods=1).sum().reset_index(0, drop=True)
 
-# 6. 지역 인코딩
 df = pd.get_dummies(df, columns=["stn", "address_gu", "sub_address"])
 
-# 7. 학습 및 평가
 features = [
     "ta_max", "ta_min", "ta_max_min", "hm_min", "hm_max", "ws_max", "ws_ins_max", "rn_day",
     "ta_diff", "hm_diff", "weekday", "month",
     "weekday_sin", "weekday_cos", "month_sin", "month_cos",
-    "is_holiday", "is_heatwave", "is_heavy_rain",
+    "is_heatwave", "is_heavy_rain",
     "call_count_lag1", "call_count_sum3", "call_count_sum7", "call_count_mean7",
     "rn_day_lag1", "rn_day_sum3", "rn_day_sum7"
 ] + [col for col in df.columns if col.startswith(("stn_", "address_gu_", "sub_address_"))]
@@ -100,68 +49,83 @@ features = [
 X = df[features]
 y = df["call_count"]
 
+# ----------------------------
+# 2. 모델 학습
+# ----------------------------
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Random Forest
-rf_model = RandomForestRegressor(n_estimators=100, max_depth=15, random_state=42)
-rf_model.fit(X_train, y_train)
-rf_pred = rf_model.predict(X_test)
-
-# Gradient Boosting
-gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42)
-gb_model.fit(X_train, y_train)
-gb_pred = gb_model.predict(X_test)
-
-# 앙상블 평균
-ensemble_pred = (rf_pred + gb_pred) / 2
-
-# 성능 평가
-rmse_rf = np.sqrt(mean_squared_error(y_test, rf_pred))
-rmse_gb = np.sqrt(mean_squared_error(y_test, gb_pred))
-rmse_ens = np.sqrt(mean_squared_error(y_test, ensemble_pred))
-
-# 하이퍼파라미터 분포 정의
-param_dist = {
-    'n_estimators': randint(100, 500),
-    'learning_rate': uniform(0.01, 0.2),
-    'max_depth': randint(3, 10),
-    'min_samples_split': randint(2, 10),
-    'min_samples_leaf': randint(1, 10),
-    'subsample': uniform(0.6, 0.4),
-    'max_features': ['auto', 'sqrt', 'log2', None]
-}
-
-# 모델 생성
-gbr = GradientBoostingRegressor(random_state=42)
-
-# 랜덤 서치
-random_search = RandomizedSearchCV(
-    gbr,
-    param_distributions=param_dist,
-    n_iter=30,                 # 반복 횟수
-    scoring='neg_root_mean_squared_error',
-    cv=3,
-    verbose=1,
-    random_state=42,
-    n_jobs=-1
+gbr = GradientBoostingRegressor(
+    n_estimators=388,
+    learning_rate=0.173,
+    max_depth=3,
+    min_samples_split=4,
+    min_samples_leaf=3,
+    subsample=0.842,
+    max_features=None,
+    random_state=42
 )
+gbr.fit(X_train, y_train)
 
-# 학습
-random_search.fit(X_train, y_train)
+# ----------------------------
+# 3. 평가
+# ----------------------------
+y_pred = gbr.predict(X_test)
+rmse_total = np.sqrt(mean_squared_error(y_test, y_pred))
+print(f"📊 전체 RMSE: {rmse_total:.4f}")
+rmse_high = np.sqrt(mean_squared_error(y_test[y_test >= 10], y_pred[y_test >= 10]))
+print(f"🔴 고신고일 RMSE (y ≥ 10): {rmse_high:.4f}")
 
-# 최적 모델로 예측
-best_model = random_search.best_estimator_
-y_pred = best_model.predict(X_test)
+true_flag = (y_test >= 10).astype(int)
+pred_flag = (y_pred >= 10).astype(int)
+print("\n🧠 고신고일 경보 플래그 평가")
+print(confusion_matrix(true_flag, pred_flag))
+print(classification_report(true_flag, pred_flag, digits=4))
 
-# 평가
-rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-print("✅ 최적 하이퍼파라미터:", random_search.best_params_)
-print(f"✅ 튜닝 후 GradientBoosting RMSE: {rmse:.4f}")
+# ----------------------------
+# 4. 시각화
+# ----------------------------
+plt.figure(figsize=(6, 6))
+plt.scatter(np.round(y_test), np.round(y_pred), alpha=0.4, color='blue')
+plt.plot([0, 20], [0, 20], 'r--', label='정확 예측선 (y=x)')
+plt.xlabel("실제 신고건수")
+plt.ylabel("예측 신고건수")
+plt.title("GradientBoosting 예측 vs 실제")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
 
-## print(f"✅ RandomForest RMSE: {rmse_rf:.4f}")
-print(f"✅ GradientBoosting RMSE: {rmse_gb:.4f}")
-## print(f"✅ Ensemble RMSE: {rmse_ens:.4f}")
+# === 5. 테스트셋 예측 및 제출 파일 저장 ===
 
+# 1. 테스트셋 불러오기
+df_test = pd.read_csv("call119_test.csv", encoding='cp949')
+df_test.columns = df_test.columns.str.strip().str.lower()  # 소문자 처리
 
+# 2. 전처리 동일하게 적용
+df_test["tm"] = pd.to_datetime(df_test["tm"], format="%Y%m%d")
+df_test["month"] = df_test["tm"].dt.month
+df_test["day"] = df_test["tm"].dt.day
+df_test["weekday"] = df_test["tm"].dt.weekday
+df_test["is_weekend"] = df_test["weekday"].isin([5, 6]).astype(int)
+df_test["humidity_range"] = df_test["hm_max"] - df_test["hm_min"]
+df_test["is_heavy_rain"] = (df_test["rn_day"] >= 50).astype(int)
+df_test["is_heatwave"] = (df_test["ta_max"] >= 33).astype(int)
 
+df_test = pd.get_dummies(df_test, columns=["address_gu"])
 
+# 누락된 컬럼 0으로 채우고 순서 맞추기
+missing_cols = set(X.columns) - set(df_test.columns)
+for col in missing_cols:
+    df_test[col] = 0
+df_test = df_test[X.columns]
+
+# 3. 예측 수행
+y_test_pred = gbr.predict(df_test)
+call_count_pred = np.round(y_test_pred).astype(int)
+
+# 4. 제출 파일 생성 및 저장
+submission = pd.DataFrame({
+    "id": range(len(call_count_pred)),
+    "call_count": call_count_pred
+})
+submission.to_csv("submission.csv", index=False, encoding="utf-8-sig")
+print("✅ submission.csv 저장 완료!")
