@@ -37,6 +37,8 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint, uniform
 
 # 1. 데이터 불러오기 및 전처리
 df = pd.read_csv("call119_train.csv")
@@ -118,9 +120,47 @@ rmse_rf = np.sqrt(mean_squared_error(y_test, rf_pred))
 rmse_gb = np.sqrt(mean_squared_error(y_test, gb_pred))
 rmse_ens = np.sqrt(mean_squared_error(y_test, ensemble_pred))
 
-print(f"✅ RandomForest RMSE: {rmse_rf:.4f}")
+# 하이퍼파라미터 분포 정의
+param_dist = {
+    'n_estimators': randint(100, 500),
+    'learning_rate': uniform(0.01, 0.2),
+    'max_depth': randint(3, 10),
+    'min_samples_split': randint(2, 10),
+    'min_samples_leaf': randint(1, 10),
+    'subsample': uniform(0.6, 0.4),
+    'max_features': ['auto', 'sqrt', 'log2', None]
+}
+
+# 모델 생성
+gbr = GradientBoostingRegressor(random_state=42)
+
+# 랜덤 서치
+random_search = RandomizedSearchCV(
+    gbr,
+    param_distributions=param_dist,
+    n_iter=30,                 # 반복 횟수
+    scoring='neg_root_mean_squared_error',
+    cv=3,
+    verbose=1,
+    random_state=42,
+    n_jobs=-1
+)
+
+# 학습
+random_search.fit(X_train, y_train)
+
+# 최적 모델로 예측
+best_model = random_search.best_estimator_
+y_pred = best_model.predict(X_test)
+
+# 평가
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+print("✅ 최적 하이퍼파라미터:", random_search.best_params_)
+print(f"✅ 튜닝 후 GradientBoosting RMSE: {rmse:.4f}")
+
+## print(f"✅ RandomForest RMSE: {rmse_rf:.4f}")
 print(f"✅ GradientBoosting RMSE: {rmse_gb:.4f}")
-print(f"✅ Ensemble RMSE: {rmse_ens:.4f}")
+## print(f"✅ Ensemble RMSE: {rmse_ens:.4f}")
 
 
 
